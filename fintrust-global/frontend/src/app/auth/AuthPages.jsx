@@ -2,13 +2,18 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { BarChart2, Eye, EyeOff, ArrowLeft } from 'lucide-react'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+)
 
 // ── SHARED AUTH LAYOUT ────────────────────────────────────
 function AuthLayout({ children, title, subtitle }) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f2347] via-[#1a3a6b] to-[#2563eb] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2.5 group">
             <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center">
@@ -22,12 +27,10 @@ function AuthLayout({ children, title, subtitle }) {
           <p className="text-blue-200 text-sm">{subtitle}</p>
         </div>
 
-        {/* Card */}
         <div className="bg-white rounded-3xl shadow-2xl p-8">
           {children}
         </div>
 
-        {/* Back */}
         <div className="text-center mt-6">
           <Link href="/" className="inline-flex items-center gap-1.5 text-blue-200 text-sm hover:text-white transition-colors">
             <ArrowLeft size={14} />
@@ -80,13 +83,8 @@ export function LoginPage() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) throw error
       window.location.href = '/chat'
     } catch (err) {
       setError(err.message || 'Login failed. Please try again.')
@@ -155,13 +153,12 @@ export function SignupPage() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+      const { error } = await supabase.auth.signUp({
+        email: form.email,
+        password: form.password,
+        options: { data: { full_name: form.name } }
       })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
+      if (error) throw error
       setSuccess(true)
     } catch (err) {
       setError(err.message || 'Signup failed. Please try again.')
@@ -208,7 +205,6 @@ export function SignupPage() {
           </div>
         )}
 
-        {/* What you get */}
         <div className="bg-blue-50 rounded-xl p-3 space-y-1.5">
           {['Free DCF, LBO, 3-Statement & FP&A models',
             'Real NSE, BSE, NYSE & NASDAQ data',
