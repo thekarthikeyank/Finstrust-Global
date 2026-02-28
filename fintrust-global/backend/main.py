@@ -1,6 +1,6 @@
 """
 Fintrust Global — FastAPI Backend
-Finance Chat AI + Model Generation Pipeline
+CFA-Level AI Finance Analyst
 """
 
 from fastapi import FastAPI, BackgroundTasks
@@ -11,12 +11,42 @@ import asyncio, json, os, uuid, sys
 from typing import Optional
 sys.path.insert(0, os.path.dirname(__file__))
 
-app = FastAPI(title="Fintrust Global API", version="1.0.0")
+app = FastAPI(title="Fintrust Global API", version="2.0.0")
 app.add_middleware(CORSMiddleware,
     allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"])
 
 sessions = {}
+
+CFA_ANALYST_SYSTEM = """You are a CFA charterholder and Senior Equity Research Analyst with 15 years of experience at a bulge-bracket investment bank. You have deep expertise in:
+
+- Fundamental analysis: DCF, LBO, 3-Statement, Comparable Company Analysis
+- Indian markets: NSE, BSE, Nifty 50, sectoral indices, SEBI regulations
+- Global markets: NYSE, NASDAQ, S&P 500, sector dynamics
+- Valuation frameworks: EV/EBITDA, P/E, P/B, EV/Sales, PEG, DDM
+- Risk frameworks: Beta, WACC, Cost of Capital, Credit Risk
+- Accounting: Ind AS, IFRS, US GAAP — you can read between the lines
+
+Your communication style:
+- Direct and confident like a senior analyst on a client call
+- Use precise financial terminology but explain it when needed
+- Back every claim with numbers and data
+- Give actionable insights, not generic commentary
+- When you don't have data, say so clearly and explain what you'd need
+- Format responses with **bold** for key metrics and numbers
+- Use ₹ for Indian stocks, $ for US stocks
+- Always end with: "⚠️ Not financial advice — for educational purposes only"
+
+When analyzing a company:
+1. Start with the INVESTMENT THESIS in 2-3 sentences
+2. Key financial metrics (revenue, margins, growth, valuation)
+3. Bull case vs Bear case
+4. Peer comparison if relevant
+5. Key risks
+6. Your view: Attractive / Fair Value / Expensive
+
+You think in numbers. You speak like a Bloomberg terminal that can talk."""
+
 
 class ChatRequest(BaseModel):
     question: str
@@ -35,6 +65,7 @@ class MissingData(BaseModel):
     session_id: str
     field: str
     value: str
+
 
 def get_session(sid: str) -> dict:
     if sid not in sessions:
@@ -56,7 +87,7 @@ def add_log(session, agent, message, status="info"):
 
 @app.get("/")
 def root():
-    return {"status": "Fintrust Global API Running", "version": "1.0.0"}
+    return {"status": "Fintrust Global API Running", "version": "2.0.0"}
 
 @app.post("/api/session/new")
 def new_session():
@@ -66,195 +97,249 @@ def new_session():
 
 @app.post("/api/chat")
 async def finance_chat(req: ChatRequest):
-    """Handle general finance questions via AI"""
+    """Handle general finance questions via CFA-level AI"""
     answer = await get_finance_answer(req.question)
     return {"answer": answer, "session_id": req.session_id}
 
-async def get_finance_answer(question: str) -> str:
-    """Get answer from Gemini or Groq"""
 
-    FINANCE_SYSTEM = """You are Fintrust Global, an expert AI financial analyst.
-You help students and retail investors understand finance, stocks, and markets.
-Rules:
-- Give precise, data-backed answers when possible
-- Use Indian market context when relevant (NSE, BSE, Nifty, Sensex)
-- Explain financial concepts clearly without jargon
-- Always add disclaimer: "Not financial advice — for educational purposes"
-- Keep responses concise but complete
-- Use **bold** for key terms and numbers
-- Format numbers properly (₹ for INR, $ for USD)"""
+async def get_finance_answer(question: str) -> str:
+    """Get CFA-level answer from Gemini or Groq"""
 
     # Try Gemini first
     try:
         import google.generativeai as genai
-        import os
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if api_key:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-1.5-flash",
-                system_instruction=FINANCE_SYSTEM)
+            model = genai.GenerativeModel(
+                "gemini-1.5-flash",
+                system_instruction=CFA_ANALYST_SYSTEM
+            )
             response = model.generate_content(question)
             return response.text
     except Exception as e:
         pass
 
-    # Try Groq
+    # Try Groq fallback
     try:
         from groq import Groq
-        import os
         api_key = os.environ.get("GROQ_API_KEY", "")
         if api_key:
             client = Groq(api_key=api_key)
             res = client.chat.completions.create(
                 model="llama-3.1-70b-versatile",
                 messages=[
-                    {"role": "system", "content": FINANCE_SYSTEM},
+                    {"role": "system", "content": CFA_ANALYST_SYSTEM},
                     {"role": "user", "content": question}
                 ],
-                max_tokens=800
+                max_tokens=1200
             )
             return res.choices[0].message.content
     except:
         pass
 
-    # Fallback rule-based
-    return get_fallback_answer(question)
+    return "I'm having trouble connecting to the AI engine. Please try again in a moment."
 
-def get_fallback_answer(question: str) -> str:
-    q = question.lower()
-    if "dcf" in q or "discounted cash flow" in q:
-        return "**DCF (Discounted Cash Flow)** values a company by estimating future free cash flows and discounting them to present value using WACC. It is the gold standard for intrinsic valuation. Key inputs: revenue growth, EBITDA margin, WACC, and terminal growth rate.\n\n*Not financial advice — for educational purposes*"
-    elif "ebitda" in q:
-        return "**EBITDA** = Earnings Before Interest, Taxes, Depreciation and Amortization. It measures operating profitability before financing and accounting decisions. A 25% EBITDA margin means ₹25 of operating profit for every ₹100 of revenue. Used widely in valuation multiples like EV/EBITDA.\n\n*Not financial advice — for educational purposes*"
-    elif "wacc" in q:
-        return "**WACC** (Weighted Average Cost of Capital) is the blended cost of a company's funding sources — equity and debt. Formula: WACC = (E/V × Ke) + (D/V × Kd × (1-t)). For Indian large-caps it typically ranges from 10-14%. Used as the discount rate in DCF models.\n\n*Not financial advice — for educational purposes*"
-    elif "pe" in q or "p/e" in q:
-        return "**P/E Ratio** (Price-to-Earnings) = Market Price per share ÷ EPS. Nifty 50 trades at ~22x P/E historically. IT sector trades at premium (25-35x) due to high ROCE and growth. A stock trading below its 5yr average P/E may indicate undervaluation — but context matters.\n\n*Not financial advice — for educational purposes*"
-    return "I can help you analyse any listed company, explain financial concepts, or build valuation models. Try asking: 'Analyse Infosys', 'Explain DCF', or 'Is TCS overvalued?'\n\n*Not financial advice — for educational purposes*"
 
 @app.post("/api/research")
-async def research_company(req: CompanyRequest, background_tasks: BackgroundTasks):
+async def start_research(req: CompanyRequest, background_tasks: BackgroundTasks):
+    """Start company research and model generation pipeline"""
     sid = req.session_id or str(uuid.uuid4())
     session = get_session(sid)
-    session["company_name"] = req.company_name
     session["phase"] = "researching"
+    session["company_name"] = req.company_name
     session["logs"] = []
-    background_tasks.add_task(run_research_pipeline, sid, req.company_name)
-    return {"session_id": sid, "status": "researching"}
+
+    background_tasks.add_task(run_pipeline, sid)
+    return {"session_id": sid, "status": "started"}
+
+
+async def run_pipeline(sid: str):
+    """Run the full 6-agent pipeline"""
+    session = get_session(sid)
+    try:
+        from agents.research_agent import ResearchAgent
+        from agents.analyst_agent import AnalystAgent
+        from agents.planning_agent import PlanningAgent
+        from agents.build_agent import BuildAgent
+
+        # Agent 1: Research
+        research = ResearchAgent(session)
+        await research.fetch()
+
+        if session.get("phase") == "error":
+            return
+
+        # Agent 2: Analyst — CFA-level recommendation
+        analyst = AnalystAgent(session)
+        recommendation = await analyst.recommend()
+
+        session["phase"] = "awaiting_confirmation"
+        session["model_recommendation"] = recommendation["model_type"]
+        session["analyst_reasoning"] = recommendation.get("reasoning", "")
+        session["key_metrics"] = recommendation.get("key_metrics", {})
+
+        # Generate deep analysis
+        await generate_deep_analysis(session)
+
+    except Exception as e:
+        session["phase"] = "error"
+        session["error"] = str(e)
+        add_log(session, "System", f"Pipeline error: {str(e)}", "error")
+
+
+async def generate_deep_analysis(session: dict):
+    """Generate CFA-level investment analysis"""
+    data = session.get("company_data", {})
+    company = data.get("company_name", "the company")
+    sector = data.get("sector", "")
+    revenue = data.get("revenue_history", [])
+    ebitda = data.get("ebitda_history", [])
+    market_cap = data.get("market_cap", 0)
+    pe_ratio = data.get("pe_ratio", 0)
+    model_type = session.get("model_recommendation", "DCF")
+
+    # Calculate key metrics
+    rev_cagr = 0
+    if len(revenue) >= 2:
+        try:
+            rev_cagr = (revenue[0] / revenue[-1]) ** (1/(len(revenue)-1)) - 1
+        except:
+            rev_cagr = 0
+
+    avg_margin = 0
+    if revenue and ebitda:
+        try:
+            margins = [e/r for e,r in zip(ebitda, revenue) if r > 0]
+            avg_margin = sum(margins)/len(margins) if margins else 0
+        except:
+            avg_margin = 0
+
+    analysis_prompt = f"""Analyze {company} ({sector} sector) as a CFA-level equity analyst.
+
+Financial Data:
+- Revenue History (most recent first, ₹ Cr): {revenue[:5] if revenue else 'Not available'}
+- EBITDA History (most recent first, ₹ Cr): {ebitda[:5] if ebitda else 'Not available'}
+- Revenue CAGR: {rev_cagr:.1%}
+- Avg EBITDA Margin: {avg_margin:.1%}
+- Market Cap: ₹{market_cap:,.0f} Cr
+- P/E Ratio: {pe_ratio}x
+- Recommended Model: {model_type}
+
+Provide a structured analyst note with:
+1. **Investment Thesis** (2-3 sentences, direct view)
+2. **Key Financial Metrics** (growth, margins, valuation vs peers)
+3. **Bull Case** (what could drive upside)
+4. **Bear Case** (key risks and downside scenarios)
+5. **Valuation View** (Attractive / Fair Value / Expensive — with reasoning)
+6. **Why {model_type} model** (explain why this is the right framework)
+
+Be specific with numbers. Think like a Goldman Sachs research note."""
+
+    try:
+        import google.generativeai as genai
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if api_key:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel(
+                "gemini-1.5-flash",
+                system_instruction=CFA_ANALYST_SYSTEM
+            )
+            response = model.generate_content(analysis_prompt)
+            session["deep_analysis"] = response.text
+            add_log(session, "Analyst Agent", "CFA-level analysis complete", "success")
+            return
+    except:
+        pass
+
+    try:
+        from groq import Groq
+        api_key = os.environ.get("GROQ_API_KEY", "")
+        if api_key:
+            client = Groq(api_key=api_key)
+            res = client.chat.completions.create(
+                model="llama-3.1-70b-versatile",
+                messages=[
+                    {"role": "system", "content": CFA_ANALYST_SYSTEM},
+                    {"role": "user", "content": analysis_prompt}
+                ],
+                max_tokens=1500
+            )
+            session["deep_analysis"] = res.choices[0].message.content
+            add_log(session, "Analyst Agent", "CFA-level analysis complete", "success")
+    except:
+        session["deep_analysis"] = session.get("analyst_reasoning", "Analysis unavailable.")
+
 
 @app.post("/api/confirm-model")
 async def confirm_model(req: ConfirmModel, background_tasks: BackgroundTasks):
+    """User confirms model type, start building"""
     session = get_session(req.session_id)
+
     if req.model_type:
         session["model_recommendation"] = req.model_type
-    session["phase"] = "planning"
-    background_tasks.add_task(run_planning_pipeline, req.session_id)
-    return {"status": "planning"}
 
-@app.post("/api/build")
-async def build_model(req: ConfirmModel, background_tasks: BackgroundTasks):
-    session = get_session(req.session_id)
-    session["phase"] = "building"
-    background_tasks.add_task(run_build_pipeline, req.session_id)
-    return {"status": "building"}
+    if req.confirmed:
+        session["phase"] = "building"
+        background_tasks.add_task(build_model, req.session_id)
+        return {"status": "building", "model_type": session["model_recommendation"]}
 
-@app.get("/api/logs/{session_id}")
-async def stream_logs(session_id: str):
-    async def generator():
-        session = get_session(session_id)
-        sent = 0
-        while True:
-            logs = session.get("logs", [])
-            for log in logs[sent:]:
-                yield f"data: {json.dumps(log)}\n\n"
-            sent = len(logs)
-            if session.get("phase") in ["delivered", "error", "awaiting_confirmation"]:
-                yield f"data: {json.dumps({'type':'done','phase':session['phase']})}\n\n"
-                break
-            await asyncio.sleep(0.3)
-    return StreamingResponse(generator(), media_type="text/event-stream")
+    return {"status": "cancelled"}
+
+
+async def build_model(sid: str):
+    """Build the Excel model"""
+    session = get_session(sid)
+    try:
+        from agents.build_agent import BuildAgent
+        builder = BuildAgent(session)
+        await builder.build()
+    except Exception as e:
+        session["phase"] = "error"
+        session["error"] = str(e)
+        add_log(session, "Build Agent", f"Build error: {str(e)}", "error")
+
 
 @app.get("/api/status/{session_id}")
-def get_status(session_id: str):
+async def get_status(session_id: str):
+    """Get current session status"""
     session = get_session(session_id)
     return {
-        "phase": session.get("phase"),
+        "phase": session.get("phase", "idle"),
+        "company_name": session.get("company_name"),
         "model_recommendation": session.get("model_recommendation"),
-        "missing_fields": session.get("missing_fields", []),
-        "qa_report": session.get("qa_report"),
-        "narrator_notes": session.get("narrator_notes", []),
-        "assumptions_summary": session.get("assumptions", {}),
-        "company_data": session.get("company_data", {}),
+        "analyst_reasoning": session.get("analyst_reasoning", ""),
+        "deep_analysis": session.get("deep_analysis", ""),
+        "key_metrics": session.get("key_metrics", {}),
+        "logs": session.get("logs", [])[-20:],
+        "error": session.get("error"),
+        "excel_ready": session.get("excel_path") is not None,
     }
 
+
 @app.get("/api/download/{session_id}")
-def download_excel(session_id: str):
+async def download_model(session_id: str):
+    """Download the generated Excel model"""
     session = get_session(session_id)
-    path = session.get("excel_path")
-    if not path or not os.path.exists(path):
-        return {"error": "File not ready"}
+    excel_path = session.get("excel_path")
+
+    if not excel_path or not os.path.exists(excel_path):
+        return {"error": "Model not ready yet"}
+
     company = session.get("company_name", "Company").replace(" ", "_")
-    model = session.get("model_recommendation", "Model")
-    return FileResponse(path,
+    model_type = session.get("model_recommendation", "Model")
+    filename = f"{company}_{model_type}_Fintrust.xlsx"
+
+    return FileResponse(
+        excel_path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"{company}_{model}_FintrustGlobal.xlsx")
+        filename=filename
+    )
 
-async def run_research_pipeline(session_id, company_name):
-    from agents.research_agent import ResearchAgent
-    from agents.analyst_agent import AnalystAgent
-    session = get_session(session_id)
-    try:
-        add_log(session, "Research Agent", f"Researching '{company_name}'...", "thinking")
-        researcher = ResearchAgent(session)
-        data = await researcher.research(company_name)
-        session["company_data"] = data
-        add_log(session, "Research Agent", "Financial data extracted", "success")
-        add_log(session, "Analyst Agent", "Analysing financial profile...", "thinking")
-        analyst = AnalystAgent(session)
-        rec = await analyst.recommend()
-        session["model_recommendation"] = rec["model_type"]
-        session["phase"] = "awaiting_confirmation"
-        add_log(session, "Analyst Agent", f"Recommendation: {rec['model_type']}", "success")
-    except Exception as e:
-        add_log(session, "Research Agent", f"Error: {str(e)[:60]}", "error")
-        session["phase"] = "error"
 
-async def run_planning_pipeline(session_id):
-    from agents.planning_agent import PlanningAgent
-    session = get_session(session_id)
-    try:
-        add_log(session, "Planning Agent", "Mapping data to assumptions...", "thinking")
-        planner = PlanningAgent(session)
-        result = await planner.plan()
-        session["assumptions"] = result["assumptions"]
-        session["narrator_notes"] = result["narrator_notes"]
-        session["phase"] = "building"
-        add_log(session, "Planning Agent", "Assumptions ready — building model", "success")
-        await run_build_pipeline(session_id)
-    except Exception as e:
-        add_log(session, "Planning Agent", f"Error: {str(e)[:60]}", "error")
-        session["phase"] = "error"
-
-async def run_build_pipeline(session_id):
-    from agents.build_agent import BuildAgent, QAAgent, DeliveryAgent
-    session = get_session(session_id)
-    try:
-        add_log(session, "Build Agent", "Building Excel model...", "thinking")
-        builder = BuildAgent(session)
-        path = await builder.build()
-        session["excel_path"] = path
-        add_log(session, "Build Agent", "Model generated", "success")
-        add_log(session, "QA Agent", "Running quality checks...", "thinking")
-        qa = QAAgent(session)
-        report = await qa.audit(path)
-        session["qa_report"] = report
-        if not report["passed"]:
-            fixed = await qa.auto_fix(path, report["issues"])
-            if fixed:
-                session["excel_path"] = fixed
-        add_log(session, "QA Agent", f"{report['checks_passed']} checks passed", "success")
-        add_log(session, "Delivery Agent", "Model ready for download", "success")
-        session["phase"] = "delivered"
-    except Exception as e:
-        add_log(session, "Build Agent", f"Error: {str(e)[:60]}", "error")
-        session["phase"] = "error"
+@app.post("/api/provide-data")
+async def provide_missing_data(req: MissingData):
+    """User provides missing data"""
+    session = get_session(req.session_id)
+    session["company_data"][req.field] = req.value
+    return {"status": "updated"}
